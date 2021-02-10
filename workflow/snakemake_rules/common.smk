@@ -28,15 +28,39 @@ def numeric_date(dt=None):
 def _get_subsampling_scheme_by_build_name(build_name):
     return config["builds"][build_name].get("subsampling_scheme", build_name)
 
+def _get_path_for_input(stage, origin_wildcard):
+    """
+    Inputs may define a local filepath, or a s3:// address. This function allows
+    snakemake to call a separate rule to download the remote resource, if needed.
+    """
+    origin = origin_wildcard[1:] # trim leading `_`
+    value = config.get("inputs", {}).get(origin, {}).get(stage, "")
+    on_s3 = value.startswith("s3://")
+
+    ## Basic checking which could be taken care of by the config schema
+    if not value and value in ["metadata", "sequences"]:
+        raise Exception(f"ERROR: config->input->{origin}->{stage} is not defined.")
+
+    if stage=="metadata":
+        return f"data/downloaded{origin_wildcard}.tsv" if on_s3 else value
+    if stage=="sequences":
+        return f"data/downloaded{origin_wildcard}.fasta" if on_s3 else value
+    if stage=="filtered":
+        return f"results/precomputed-filtered{origin_wildcard}.fasta" if on_s3 else f"results/filtered{origin_wildcard}.fasta"
+
+    raise Exception(f"_get_path_for_input with unknown stage \"{stage}\"")
+
 
 def _get_single_metadata(wildcards):
     """If multiple origins are specified, we fetch the metadata corresponding
     to that origin. If multiple inputs are employed, we simply return the
     corresponding (un-modified) metadata input
     """
-    if isinstance(config['metadata'], str):
-        return config['metadata']
-    return config['metadata'][wildcards.origin[1:]]
+    if wildcards["origin"] == "":
+        if "inputs" in config:
+            raise Exception("WARNING: empty origin wildcard but config defines 'inputs`")
+        return config["metadata"]
+    return _get_path_for_input("metadata", wildcards.origin)
 
 
 def _get_unified_metadata(wildcards):
@@ -44,9 +68,11 @@ def _get_unified_metadata(wildcards):
     If a single input was specified, this is returned.
     If multiple inputs are specified, a rule to combine them is used.
     """
-    if isinstance(config['metadata'], str):
-        return config['metadata']
-    return "results/combined_metadata.tsv" # see rule combine_input_metadata
+    if "inputs" in config:
+        return "results/combined_metadata.tsv"  # see rule combine_input_metadata
+    if config['metadata'].startswith("s3://"):
+        return "data"
+    return config['metadata']
 
 def _get_metadata_by_build_name(build_name):
     """Returns a path associated with the metadata for the given build name.

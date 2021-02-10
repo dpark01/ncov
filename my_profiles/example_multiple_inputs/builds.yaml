@@ -2,12 +2,33 @@
 ## This YAML file is sparsely commented, with a focus on the parts relevant to multiple inputs
 ## See my_profiles/example/builds.yaml for more general comments
 
-sequences:
-  aus: "data/example_sequences_aus.fasta"
-  worldwide: "data/example_sequences_worldwide.fasta"
-metadata:
-  aus: "data/example_metadata_aus.tsv"
-  worldwide: "data/example_metadata_worldwide.tsv"
+### INPUT SET 1: Everything running locally, from local starting files
+# inputs:
+#   aus: # local files specified...
+#     metadata: "data/example_metadata_aus.tsv"
+#     sequences: "data/example_sequences_aus.fasta"
+#   worldwide:
+#     metadata: "data/example_metadata_worldwide.tsv"
+#     sequences: "data/example_sequences_worldwide.fasta"
+
+### INPUT SET 2: Everything running locally, but downloading GISAID starting files
+# inputs:
+#   aus: # local files specified...
+#     metadata: "data/example_metadata_aus.tsv"
+#     sequences: "data/example_sequences_aus.fasta"
+#   gisaid:
+#     metadata: "s3://nextstrain-ncov-private/metadata.tsv.gz"
+#     sequences: "s3://nextstrain-ncov-private/sequences.fasta.gz"
+
+### INPUT SET 3: GISIAD starting files are using pre-computed filtered alignment
+inputs:
+  aus: # local files specified...
+    metadata: "data/example_metadata_aus.tsv"
+    sequences: "data/example_sequences_aus.fasta"
+  gisaid:
+    metadata: "s3://nextstrain-ncov-private/metadata.tsv.gz"
+    filtered: "s3://nextstrain-ncov-private/filtered.fasta.xz"
+
 
 builds:
   multiple-inputs:

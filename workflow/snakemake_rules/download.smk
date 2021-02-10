@@ -3,16 +3,40 @@
 # computing them.
 
 # We control which rule runs via `ruleorder` declarations
-ruleorder: download_aligned > align
-ruleorder: download_filtered > filter
-ruleorder: download_refiltered > refilter
-ruleorder: download_masked > mask
-ruleorder: download_diagnostic > diagnostic
+ruleorder: align > download_aligned
+ruleorder: refilter > download_refiltered
+ruleorder: mask > download_masked
+ruleorder: diagnostic > download_diagnostic
+
+
+rule download_sequences:
+    message: "Downloading sequences from {params.address} -> {output.sequences}"
+    output:
+        sequences = "data/downloaded{origin}.fasta"
+    conda: config["conda_environment"]
+    params:
+        address = lambda w: config["inputs"][w.origin[1:]]["sequences"]
+    shell:
+        """
+        aws s3 cp {params.address} - | gunzip -cq > {output.sequences:q}
+        """
+
+rule download_metadata:
+    message: "Downloading metadata from {params.address} -> {output.metadata}"
+    output:
+        metadata = "data/downloaded{origin}.tsv"
+    conda: config["conda_environment"]
+    params:
+        address = lambda w: config["inputs"][w.origin[1:]]["metadata"]
+    shell:
+        """
+        aws s3 cp {params.address} - | gunzip -cq >{output.metadata:q}
+        """
 
 rule download_aligned:
     message: "Downloading aligned fasta files from S3 bucket {params.s3_bucket}"
     output:
-        sequences = "results/aligned.fasta"
+        sequences = "results/aligned{origin}.fasta"
     conda: config["conda_environment"]
     params:
         compression = config['preprocess']['compression'],
@@ -72,15 +96,14 @@ rule download_masked:
 
 
 rule download_filtered:
-    message: "Downloading final filtered fasta files from S3 bucket {params.s3_bucket}"
+    message: "Downloading pre-computed filtered alignment from {params.address} -> {output.sequences}"
     output:
-        sequences = "results/filtered.fasta"
+        sequences = "results/precomputed-filtered{origin}.fasta"
     conda: config["conda_environment"]
     params:
-        compression = config['preprocess']['compression'],
-        deflate = config['preprocess']['deflate'],
-        s3_bucket = _get_first(config, "S3_SRC_BUCKET", "S3_BUCKET")
+        deflate = config['preprocess']['deflate'], ## TODO -- define per input, not in a global config setting
+        address = lambda w: config["inputs"][w.origin[1:]]["filtered"]
     shell:
         """
-        aws s3 cp s3://{params.s3_bucket}/filtered.fasta.{params.compression} - | {params.deflate} > {output.sequences:q}
+        aws s3 cp {params.address} - | {params.deflate} > {output.sequences:q}
         """

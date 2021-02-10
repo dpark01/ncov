@@ -1,18 +1,9 @@
 def _get_unaligned_sequence_file(wildcards):
     if wildcards["origin"] == "":
-        if not isinstance(config["sequences"], str):
-            print("Error - a rule has asked for unaligned sequences without specifying an 'origin'. This necessitates config->sequences to be a string!")
-            # todo - the following exception is swallowed when snakemake decides that _running_ the rule which calls this fn (`_get_unaligned_sequence_file`)
-            # isn't necessary for the pipeline (e.g. due to intermediate files being present from a different run)
-            # how can we make snakemake exit here?
-            # Note that if the snakemake actually tries to run the rule, the exception causes an exit & message to be printed, as desired.
-            raise WorkflowError("Error - a rule has asked for unaligned sequences without specifying an 'origin'. This necessitates config->sequences to be a string!")
+        if "inputs" in config:
+            print("WARNING: empty origin wildcard but config defines 'inputs`")
         return config["sequences"]
-    origin = wildcards["origin"][1:] # trim leading `_`
-    if origin not in config["sequences"]:
-        print(f"Error - a rule has used an origin wildcard ({origin}) which doesn't have an associated sequences file!")
-        raise WorkflowError(f"Error - a rule has used an origin wildcard ({origin}) which doesn't have an associated sequences file!")
-    return config["sequences"][origin]
+    return _get_path_for_input("sequences", wildcards.origin)
 
 def _get_filter_value(wildcards, key):
     default = config["filter"].get(key, "")
@@ -36,36 +27,6 @@ def _get_aligned_sequence_file(wildcards):
     return f"results/aligned-filtered{wildcards.origin}.fasta"
 
 
-
-rule download_sequences:
-    message: "Downloading sequences from S3 bucket {params.s3_bucket}"
-    output:
-        sequences = config["default_sequences"]
-    conda: config["conda_environment"]
-    params:
-        s3_bucket = _get_first(config, "S3_SRC_BUCKET", "S3_BUCKET")
-    shell:
-        """
-        aws s3 cp s3://{params.s3_bucket}/sequences.fasta.gz - | gunzip -cq > {output.sequences:q}
-        """
-
-rule download_metadata:
-    message: "Downloading metadata from S3 bucket {params.s3_bucket}"
-    output:
-        metadata = config["default_metadata"]
-    conda: config["conda_environment"]
-    params:
-        s3_bucket = _get_first(config, "S3_SRC_BUCKET", "S3_BUCKET")
-    shell:
-        """
-        aws s3 cp s3://{params.s3_bucket}/metadata.tsv.gz - | gunzip -cq >{output.metadata:q}
-        """
-
-rule download:
-    input:
-        config["metadata"],
-        config["sequences"]
-
 rule combine_input_metadata:
     # this rule is intended to be run _only_ if we have defined multiple inputs ("origins")
     message:
@@ -73,18 +34,18 @@ rule combine_input_metadata:
         Combining metadata files {input.metadata} -> {output.metadata} and adding columns to represent origin
         """
     input:
-        metadata = lambda wildcards: list(config["metadata"].values()),
-        sequences = lambda wildcards: list(config["sequences"].values())
+        metadata = lambda wildcards: [_get_path_for_input("metadata", f"_{origin}") for origin in config.get("inputs", "")],   
+        # sequences = lambda wildcards: [_get_path_for_input("sequences", f"_{origin}") for origin in config.get("inputs", "")] # this is problematic - what if we start from aligned?!?
     output:
         metadata = "results/combined_metadata.tsv"
     params:
-        origins = lambda wildcards: list(config["sequences"].keys())
+        origins = lambda wildcards: list(config["inputs"].keys())
     log:
         "logs/combine_input_metadata.txt"
     conda: config["conda_environment"]
     shell:
         """
-        python3 scripts/combine_metadata.py --metadata {input.metadata} --origins {params.origins} --sequences {input.sequences} --output {output.metadata} 2>&1 | tee {log}
+        python3 scripts/combine_metadata.py --metadata {input.metadata} --origins {params.origins} --output {output.metadata} 2>&1 | tee {log}
         """
 
 rule excluded_sequences:
@@ -425,7 +386,7 @@ rule combine_sequences_for_subsampling:
         TODO: does this work with preprocessed?
         """
     input:
-        expand("results/filtered{origin}.fasta", origin=[f"_{k}" for k in config["sequences"]])
+        lambda w: [_get_path_for_input("filtered", f"_{origin}") for origin in config.get("inputs", {})]
     output:
         "results/combined_sequences_for_subsampling.fasta"
     conda: config["conda_environment"]
@@ -453,7 +414,7 @@ rule subsample:
          - priority: {params.priority_argument}
         """
     input:
-        sequences = "results/filtered.fasta" if isinstance(config["sequences"], str) else "results/combined_sequences_for_subsampling.fasta",
+        sequences = "results/filtered.fasta" if "inputs" not in config else "results/combined_sequences_for_subsampling.fasta",
         metadata = _get_unified_metadata,
         include = config["files"]["include"],
         priorities = get_priorities,
@@ -503,7 +464,7 @@ rule proximity_score:
         genetic similiarity to sequences in focal set for build '{wildcards.build_name}'.
         """
     input:
-        alignment = "results/filtered.fasta" if isinstance(config["sequences"], str) else "results/combined_sequences_for_subsampling.fasta",
+        alignment = "results/filtered.fasta" if "inputs" not in config else "results/combined_sequences_for_subsampling.fasta",
         metadata = _get_unified_metadata,
         reference = config["files"]["reference"],
         focal_alignment = "results/{build_name}/sample-{focus}.fasta"
